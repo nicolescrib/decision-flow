@@ -30,6 +30,7 @@ The goal is to create a calm, puzzle-like experience with a modular architecture
 - Maintains the current state of the system, including the conserved total unit count.
 - Each tick: applies pressure-field forces to move particles, absorbs particles into negative-pressure nodes, and emits particles from positive-pressure nodes.
 - Exposes a stable state snapshot to the renderer and UI.
+- Particles are stored as `numpy` arrays (positions and velocities as Nx2 float arrays) rather than a list of objects, so the per-tick force, movement, and absorption math is vectorized across all particles at once instead of looped in pure Python. This keeps the simulation responsive as the particle count grows into the thousands.
 
 ### Renderer
 - Converts simulation state into a simple visual representation.
@@ -87,6 +88,7 @@ In the first iteration, the user should be able to:
 ## Requirements
 - Python 3.10+ (or similar modern Python)
 - `pygame` for rendering and input
+- `numpy` for vectorized particle physics
 
 ## Future extensions
 - Add puzzles with target pressure patterns or unit distributions.

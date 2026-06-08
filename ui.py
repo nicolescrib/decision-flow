@@ -95,7 +95,7 @@ class UI:
         for node in self.simulator.nodes.values():
             node.units = 0.0
             node.clamp()
-        self.simulator.particles.clear()
+        self.simulator.clear_particles()
         self.selected_node = None
         self.open_menu = None
 

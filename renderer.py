@@ -4,7 +4,7 @@ import pygame
 from pygame import Rect
 from typing import Dict, Optional, Tuple
 
-from simulator import Simulator, Particle
+from simulator import Simulator
 
 PRESSURE_COLOR_THRESHOLD = 0.5
 
@@ -166,8 +166,8 @@ class ParticleRenderer(Renderer):
         screen.set_clip(content_rect)
 
         particle_radius_px = max(1, round(simulator.PARTICLE_RADIUS / self.scale))
-        for particle in simulator.particles:
-            px, py = to_screen(particle.x, particle.y)
+        for x, y in simulator.particle_positions:
+            px, py = to_screen(x, y)
             pygame.draw.circle(screen, (255, 200, 100), (px, py), particle_radius_px)
 
         for node in nodes:
@@ -210,7 +210,7 @@ class ParticleRenderer(Renderer):
 
         scale_text = self.small_font.render(
             f"Scale: {self.scale:.2f} units/px  |  Map: {int(simulator.width)}x{int(simulator.height)}"
-            f"  |  Particles: {len(simulator.particles)}",
+            f"  |  Particles: {len(simulator.particle_positions)}",
             True, (185, 195, 215),
         )
         screen.blit(scale_text, (content_rect.left + 8, content_rect.top + 24))

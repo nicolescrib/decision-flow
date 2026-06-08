@@ -6,6 +6,8 @@ import string
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 
 @dataclass
 class Node:
@@ -19,14 +21,6 @@ class Node:
 
     def clamp(self) -> None:
         self.units = max(0.0, min(self.units, self.capacity))
-
-
-@dataclass
-class Particle:
-    x: float
-    y: float
-    vx: float = 0.0
-    vy: float = 0.0
 
 
 class Simulator:
@@ -46,7 +40,11 @@ class Simulator:
         self.width = width
         self.height = height
         self.nodes: Dict[str, Node] = {}
-        self.particles: List[Particle] = []
+        # Particles are stored as structure-of-arrays (positions/velocities as
+        # Nx2 numpy arrays) rather than a list of objects so that the physics
+        # in tick() can be vectorized instead of looped in pure Python.
+        self.particle_positions: np.ndarray = np.empty((0, 2), dtype=np.float64)
+        self.particle_velocities: np.ndarray = np.empty((0, 2), dtype=np.float64)
         self.tick_count: int = 0
         self.total_units: float = 0.0
         self._initial_units: Dict[str, float] = {}
@@ -71,13 +69,23 @@ class Simulator:
         for node_id, node in self.nodes.items():
             node.units = self._initial_units.get(node_id, node.units)
             node.clamp()
-        self.particles.clear()
+        self.clear_particles()
         self._emission_charge = {node_id: 0.0 for node_id in self.nodes}
         self.tick_count = 0
+
+    def clear_particles(self) -> None:
+        self.particle_positions = np.empty((0, 2), dtype=np.float64)
+        self.particle_velocities = np.empty((0, 2), dtype=np.float64)
         self._update_total_units()
 
+    def _append_particles(self, positions: "np.typing.ArrayLike", velocities: "np.typing.ArrayLike") -> None:
+        new_positions = np.asarray(positions, dtype=np.float64).reshape(-1, 2)
+        new_velocities = np.asarray(velocities, dtype=np.float64).reshape(-1, 2)
+        self.particle_positions = np.vstack([self.particle_positions, new_positions])
+        self.particle_velocities = np.vstack([self.particle_velocities, new_velocities])
+
     def _update_total_units(self) -> None:
-        self.total_units = sum(node.units for node in self.nodes.values()) + len(self.particles)
+        self.total_units = sum(node.units for node in self.nodes.values()) + len(self.particle_positions)
 
     def _next_node_id(self) -> str:
         for letter in string.ascii_uppercase:
@@ -123,15 +131,15 @@ class Simulator:
         self._initial_units.pop(node_id, None)
         self._emission_charge.pop(node_id, None)
 
-        for _ in range(int(round(node.units))):
-            angle = random.uniform(0.0, 2.0 * math.pi)
-            speed = self.EMISSION_SPEED * (0.5 + random.random())
-            self.particles.append(Particle(
-                x=node.x + math.cos(angle) * node.radius,
-                y=node.y + math.sin(angle) * node.radius,
-                vx=math.cos(angle) * speed,
-                vy=math.sin(angle) * speed,
-            ))
+        count = int(round(node.units))
+        if count > 0:
+            angles = np.random.uniform(0.0, 2.0 * math.pi, size=count)
+            speeds = self.EMISSION_SPEED * (0.5 + np.random.random(count))
+            cos_a = np.cos(angles)
+            sin_a = np.sin(angles)
+            new_positions = np.column_stack((node.x + cos_a * node.radius, node.y + sin_a * node.radius))
+            new_velocities = np.column_stack((cos_a * speeds, sin_a * speeds))
+            self._append_particles(new_positions, new_velocities)
 
         self._update_total_units()
         return node_id
@@ -151,53 +159,68 @@ class Simulator:
         return gx, gy
 
     def _apply_forces(self) -> None:
-        nodes = list(self.nodes.values())
-        for particle in self.particles:
-            fx = 0.0
-            fy = 0.0
-            for node in nodes:
-                dx = particle.x - node.x
-                dy = particle.y - node.y
-                distance_sq = max(dx * dx + dy * dy, self.MIN_DISTANCE ** 2)
-                factor = node.pressure * self.FORCE_CONSTANT / distance_sq
-                fx += dx * factor
-                fy += dy * factor
+        positions = self.particle_positions
+        if len(positions) == 0:
+            return
 
-            particle.vx = (particle.vx + fx) * self.DAMPING
-            particle.vy = (particle.vy + fy) * self.DAMPING
-            particle.x += particle.vx
-            particle.y += particle.vy
+        node_positions = np.array([[node.x, node.y] for node in self.nodes.values()], dtype=np.float64)
+        node_pressures = np.array([node.pressure for node in self.nodes.values()], dtype=np.float64)
 
-            if particle.x < 0.0:
-                particle.x = 0.0
-                particle.vx = -particle.vx * 0.5
-            elif particle.x > self.width:
-                particle.x = self.width
-                particle.vx = -particle.vx * 0.5
+        # delta has shape (particles, nodes, 2): the offset from every node to every particle.
+        delta = positions[:, np.newaxis, :] - node_positions[np.newaxis, :, :]
+        distance_sq = np.maximum(np.sum(delta * delta, axis=2), self.MIN_DISTANCE ** 2)
+        factor = node_pressures[np.newaxis, :] * self.FORCE_CONSTANT / distance_sq
+        force = np.sum(delta * factor[:, :, np.newaxis], axis=1)
 
-            if particle.y < 0.0:
-                particle.y = 0.0
-                particle.vy = -particle.vy * 0.5
-            elif particle.y > self.height:
-                particle.y = self.height
-                particle.vy = -particle.vy * 0.5
+        velocities = (self.particle_velocities + force) * self.DAMPING
+        positions = positions + velocities
+
+        # Reflect particles off the boundary, damping and reversing the
+        # velocity component perpendicular to the wall they hit.
+        below_x = positions[:, 0] < 0.0
+        above_x = positions[:, 0] > self.width
+        positions[below_x, 0] = 0.0
+        positions[above_x, 0] = self.width
+        velocities[below_x | above_x, 0] *= -0.5
+
+        below_y = positions[:, 1] < 0.0
+        above_y = positions[:, 1] > self.height
+        positions[below_y, 1] = 0.0
+        positions[above_y, 1] = self.height
+        velocities[below_y | above_y, 1] *= -0.5
+
+        self.particle_positions = positions
+        self.particle_velocities = velocities
 
     def _absorb_particles(self) -> None:
-        remaining: List[Particle] = []
-        for particle in self.particles:
-            absorbed = False
-            for node in self.nodes.values():
-                if node.units >= node.capacity:
-                    continue
-                dx = particle.x - node.x
-                dy = particle.y - node.y
-                if dx * dx + dy * dy <= node.radius ** 2:
-                    node.units = min(node.capacity, node.units + 1.0)
-                    absorbed = True
-                    break
-            if not absorbed:
-                remaining.append(particle)
-        self.particles = remaining
+        positions = self.particle_positions
+        if len(positions) == 0:
+            return
+
+        # Process nodes in order so that, like the original implementation, a
+        # particle is absorbed by the first node (with room left) that reaches
+        # it, and a node that fills up mid-tick stops absorbing further particles.
+        absorbed_mask = np.zeros(len(positions), dtype=bool)
+        for node in self.nodes.values():
+            capacity_left = int(round(node.capacity - node.units))
+            if capacity_left <= 0:
+                continue
+
+            dx = positions[:, 0] - node.x
+            dy = positions[:, 1] - node.y
+            in_range = (dx * dx + dy * dy <= node.radius ** 2) & ~absorbed_mask
+            candidates = np.flatnonzero(in_range)
+            if candidates.size == 0:
+                continue
+
+            take = min(candidates.size, capacity_left)
+            absorbed_mask[candidates[:take]] = True
+            node.units = min(node.capacity, node.units + take)
+
+        if absorbed_mask.any():
+            keep = ~absorbed_mask
+            self.particle_positions = self.particle_positions[keep]
+            self.particle_velocities = self.particle_velocities[keep]
 
     def _emission_launch(self, node: Node) -> Tuple[float, float, float, float]:
         gx, gy = self._pressure_gradient(node)
@@ -211,6 +234,12 @@ class Simulator:
         return node.x + dx * node.radius, node.y + dy * node.radius, dx, dy
 
     def _emit_particles(self) -> None:
+        # Emission is bounded by the (small) number of nodes, so this stays a
+        # plain loop; new particles are batched into one array append below
+        # rather than growing the particle arrays one row at a time.
+        new_positions: List[Tuple[float, float]] = []
+        new_velocities: List[Tuple[float, float]] = []
+
         for node in self.nodes.values():
             if node.pressure <= 0.0 or node.units < 1.0:
                 self._emission_charge[node.id] = 0.0
@@ -221,10 +250,14 @@ class Simulator:
                 node.units -= 1.0
                 px, py, dx, dy = self._emission_launch(node)
                 speed = self.EMISSION_SPEED * (0.5 + random.random())
-                self.particles.append(Particle(x=px, y=py, vx=dx * speed, vy=dy * speed))
+                new_positions.append((px, py))
+                new_velocities.append((dx * speed, dy * speed))
                 charge -= 1.0
 
             self._emission_charge[node.id] = charge
+
+        if new_positions:
+            self._append_particles(new_positions, new_velocities)
 
     def tick(self) -> None:
         if not self.nodes:
@@ -240,12 +273,9 @@ class Simulator:
     def get_snapshot(self) -> Dict[str, float]:
         return {node_id: node.units for node_id, node in self.nodes.items()}
 
-    def get_particles(self) -> List[Particle]:
-        return self.particles[:]
-
     def create_default_graph(self) -> None:
         self.nodes.clear()
-        self.particles.clear()
+        self.clear_particles()
         self._initial_units.clear()
         self._emission_charge.clear()
 
@@ -263,5 +293,5 @@ if __name__ == "__main__":
         simulator.tick()
         print(
             f"Tick {simulator.tick_count}: {simulator.get_snapshot()} "
-            f"total={simulator.total_units:.1f} particles={len(simulator.particles)}"
+            f"total={simulator.total_units:.1f} particles={len(simulator.particle_positions)}"
         )
