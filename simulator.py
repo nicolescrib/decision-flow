@@ -30,6 +30,11 @@ class Simulator:
     MAX_PRESSURE = 6.0
     PARTICLE_RADIUS = 1.5
 
+    # Global pressure-field modifiers (see effective_pressure / display_pressure).
+    MIN_GAIN = 0.0
+    MAX_GAIN = 3.0
+    GAIN_STEP = 0.1
+
     FORCE_CONSTANT = 40.0
     DAMPING = 0.92
     MIN_DISTANCE = 12.0
@@ -49,6 +54,9 @@ class Simulator:
         self.total_units: float = 0.0
         self._initial_units: Dict[str, float] = {}
         self._emission_charge: Dict[str, float] = {}
+        # Global field modifiers applied on top of each node's authored pressure.
+        self.pressure_gain: float = 1.0
+        self.pressure_inverted: bool = False
 
     def add_node(
         self,
@@ -71,6 +79,8 @@ class Simulator:
             node.clamp()
         self.clear_particles()
         self._emission_charge = {node_id: 0.0 for node_id in self.nodes}
+        self.pressure_gain = 1.0
+        self.pressure_inverted = False
         self.tick_count = 0
 
     def clear_particles(self) -> None:
@@ -86,6 +96,27 @@ class Simulator:
 
     def _update_total_units(self) -> None:
         self.total_units = sum(node.units for node in self.nodes.values()) + len(self.particle_positions)
+
+    def effective_pressure(self, node: Node) -> float:
+        """Pressure the physics actually uses: authored value scaled by the global
+        gain and flipped when the field is inverted."""
+        sign = -1.0 if self.pressure_inverted else 1.0
+        return node.pressure * self.pressure_gain * sign
+
+    def display_pressure(self, node: Node) -> float:
+        """Pressure used only for node colouring: applies inversion (so colours
+        flip with the field) but NOT gain (so roles stay legible at low gain)."""
+        sign = -1.0 if self.pressure_inverted else 1.0
+        return node.pressure * sign
+
+    def set_pressure_gain(self, value: float) -> None:
+        self.pressure_gain = max(self.MIN_GAIN, min(self.MAX_GAIN, value))
+
+    def adjust_pressure_gain(self, delta: float) -> None:
+        self.set_pressure_gain(self.pressure_gain + delta)
+
+    def toggle_pressure_inverted(self) -> None:
+        self.pressure_inverted = not self.pressure_inverted
 
     def _next_node_id(self) -> str:
         for letter in string.ascii_uppercase:
@@ -153,7 +184,7 @@ class Simulator:
             dx = node.x - other.x
             dy = node.y - other.y
             distance_sq = max(dx * dx + dy * dy, self.MIN_DISTANCE ** 2)
-            factor = other.pressure * self.FORCE_CONSTANT / distance_sq
+            factor = self.effective_pressure(other) * self.FORCE_CONSTANT / distance_sq
             gx += dx * factor
             gy += dy * factor
         return gx, gy
@@ -164,7 +195,7 @@ class Simulator:
             return
 
         node_positions = np.array([[node.x, node.y] for node in self.nodes.values()], dtype=np.float64)
-        node_pressures = np.array([node.pressure for node in self.nodes.values()], dtype=np.float64)
+        node_pressures = np.array([self.effective_pressure(node) for node in self.nodes.values()], dtype=np.float64)
 
         # delta has shape (particles, nodes, 2): the offset from every node to every particle.
         delta = positions[:, np.newaxis, :] - node_positions[np.newaxis, :, :]
@@ -241,11 +272,12 @@ class Simulator:
         new_velocities: List[Tuple[float, float]] = []
 
         for node in self.nodes.values():
-            if node.pressure <= 0.0 or node.units < 1.0:
+            pressure = self.effective_pressure(node)
+            if pressure <= 0.0 or node.units < 1.0:
                 self._emission_charge[node.id] = 0.0
                 continue
 
-            charge = self._emission_charge.get(node.id, 0.0) + node.pressure * self.EMISSION_CHARGE_RATE
+            charge = self._emission_charge.get(node.id, 0.0) + pressure * self.EMISSION_CHARGE_RATE
             while charge >= 1.0 and node.units >= 1.0:
                 node.units -= 1.0
                 px, py, dx, dy = self._emission_launch(node)
@@ -278,6 +310,8 @@ class Simulator:
         self.clear_particles()
         self._initial_units.clear()
         self._emission_charge.clear()
+        self.pressure_gain = 1.0
+        self.pressure_inverted = False
 
         for node_id, units, pressure in (("A", 40.0, 4.0), ("B", 20.0, 0.0), ("C", 0.0, -4.0)):
             radius = random.uniform(self.MIN_NODE_RADIUS, self.MAX_NODE_RADIUS)

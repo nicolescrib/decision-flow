@@ -57,9 +57,10 @@ class SimpleNumberRenderer(Renderer):
             if node_rects is not None:
                 node_rects[node.id] = rect
 
-            if node.pressure > PRESSURE_COLOR_THRESHOLD:
+            display = simulator.display_pressure(node)
+            if display > PRESSURE_COLOR_THRESHOLD:
                 fill_color = (110, 140, 220)
-            elif node.pressure < -PRESSURE_COLOR_THRESHOLD:
+            elif display < -PRESSURE_COLOR_THRESHOLD:
                 fill_color = (190, 120, 100)
             else:
                 fill_color = (100, 150, 120)
@@ -107,11 +108,12 @@ class CompactListRenderer(Renderer):
 
         for node in simulator.nodes.values():
             is_selected = selected_node == node.id
+            display = simulator.display_pressure(node)
             if is_selected:
                 color = (255, 255, 100)
-            elif node.pressure > PRESSURE_COLOR_THRESHOLD:
+            elif display > PRESSURE_COLOR_THRESHOLD:
                 color = (220, 200, 150)
-            elif node.pressure < -PRESSURE_COLOR_THRESHOLD:
+            elif display < -PRESSURE_COLOR_THRESHOLD:
                 color = (160, 190, 230)
             else:
                 color = (180, 180, 220)
@@ -178,9 +180,10 @@ class ParticleRenderer(Renderer):
                 click_radius = max(radius_px, 12)
                 node_rects[node.id] = Rect(cx - click_radius, cy - click_radius, click_radius * 2, click_radius * 2)
 
-            if node.pressure > PRESSURE_COLOR_THRESHOLD:
+            display = simulator.display_pressure(node)
+            if display > PRESSURE_COLOR_THRESHOLD:
                 fill_color = (100, 140, 200)
-            elif node.pressure < -PRESSURE_COLOR_THRESHOLD:
+            elif display < -PRESSURE_COLOR_THRESHOLD:
                 fill_color = (200, 100, 80)
             else:
                 fill_color = (80, 140, 100)

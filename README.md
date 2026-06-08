@@ -12,6 +12,7 @@ The goal is to create a calm, puzzle-like experience with a modular architecture
 - Particles drift freely through the space under the combined pull/push of every node's pressure field — their position relative to nodes is fully simulated, not fixed to predefined connections.
 - The system evolves over time in discrete ticks.
 - The player can interact with the sandbox by selecting nodes and adjusting their units or pressure.
+- Beyond per-node pressure, a global **pressure field** modifier acts on every node at once: a multiplicative **gain** scales all pressures together (preserving their relative balance), and an **invert** toggle flips the whole field so emitters become absorbers and vice versa. Both are applied on top of each node's authored pressure, leaving the per-node values unchanged.
 
 ## Design goals
 - Keep the first version small and understandable.
@@ -63,6 +64,20 @@ In the first iteration, the user should be able to:
 - Reset the simulation back to its initial unit values.
 - Select a node and adjust its units and pressure live, to set up custom starting conditions or experiment with the field.
 - Switch between alternative renderers (numeric, list, and spatial particle views).
+- Raise or lower the global pressure gain to intensify or calm the entire field at once.
+- Invert the whole pressure field, swapping every emitter and absorber.
+
+## Controls
+- **Space** — run / pause the simulation.
+- **Tab** — cycle through renderers.
+- **Click a node** to select it.
+- **Up / Down** — adjust the selected node's units by 1.
+- **[ / ]** — adjust the selected node's pressure by 0.5.
+- **( / )** — lower / raise the global **pressure gain**, which scales every node's pressure at once (range 0.0–3.0, default 1.0×).
+- **i** — toggle **invert pressure** (emitters become absorbers and vice versa).
+- **+ / −** — add / remove 5 units from the selected node, or zoom the particle view when no node is selected.
+- **n / k** — add / remove a random node.
+- **Esc** — quit.
 
 ## Simulation plan
 - Place a small set of nodes at fixed positions in a 2D normalized space.
