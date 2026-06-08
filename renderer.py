@@ -151,8 +151,6 @@ class ParticleRenderer(Renderer):
         for index, node in enumerate(nodes):
             x = content_rect.left + spacing * (index + 1)
             node_positions[node.id] = (x, center_y)
-        if node_rects is not None:
-            node_rects[node.id] = Rect(x - 35, y - 35, 70, 70)
 
         for particle in simulator.particles:
             from_node = simulator.nodes[particle.from_id]
@@ -169,6 +167,9 @@ class ParticleRenderer(Renderer):
         for index, node in enumerate(nodes):
             x, y = node_positions[node.id]
             rect = Rect(x - 35, y - 35, 70, 70)
+
+            if node_rects is not None:
+                node_rects[node.id] = rect
 
             if node.node_type == NodeType.SOURCE:
                 fill_color = (100, 140, 200)

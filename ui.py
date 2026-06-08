@@ -202,6 +202,12 @@ class UI:
         self.node_rects.clear()
         self.active_renderer.render(self.screen, self.simulator, content_rect, self.selected_node, self.node_rects)
         self._draw_hints()
+
+        if self.open_menu == "file":
+            self._draw_dropdown(self.file_menu_items, 10, self.MENU_HEIGHT)
+        elif self.open_menu == "renderer":
+            self._draw_dropdown(self.renderer_menu_items, 90, self.MENU_HEIGHT)
+
         pygame.display.flip()
 
     def _draw_menu_bar(self) -> None:
@@ -251,11 +257,6 @@ class UI:
         status = "Running" if self.auto_run else "Stopped"
         status_text = self.menu_font.render(f"Status: {status}  |  Renderer: {self.active_renderer.name}", True, self.STATUS_TEXT)
         self.screen.blit(status_text, (380, 6))
-
-        if self.open_menu == "file":
-            self._draw_dropdown(self.file_menu_items, 10, self.MENU_HEIGHT)
-        elif self.open_menu == "renderer":
-            self._draw_dropdown(self.renderer_menu_items, 90, self.MENU_HEIGHT)
 
     def _draw_dropdown(self, items: List[MenuItem], x: int, y: int) -> None:
         item_height = 24
