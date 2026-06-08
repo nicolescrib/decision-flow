@@ -12,7 +12,7 @@ def main() -> None:
     simulator = Simulator()
     simulator.create_default_graph()
 
-    renderers = [SimpleNumberRenderer(), CompactListRenderer(), ParticleRenderer(resolution=2)]
+    renderers = [SimpleNumberRenderer(), CompactListRenderer(), ParticleRenderer(scale=1.0)]
     ui = UI(simulator, renderers)
     ui.run()
 
