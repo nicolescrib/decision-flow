@@ -66,10 +66,12 @@ In the first iteration, the user should be able to:
 - Switch between alternative renderers (numeric, list, and spatial particle views).
 - Raise or lower the global pressure gain to intensify or calm the entire field at once.
 - Invert the whole pressure field, swapping every emitter and absorber.
+- Open the **Settings** menu to view and edit every adjustable setting (active renderer, pressure gain, pressure inversion, particle scale) from one place, with controls that update live as new settings are added.
 
 ## Controls
 - **Space** — run / pause the simulation.
 - **Tab** — cycle through renderers.
+- **Settings menu** — open it from the menu bar to adjust any editable setting with on-screen +/- and toggle controls.
 - **Click a node** to select it.
 - **Up / Down** — adjust the selected node's units by 1.
 - **[ / ]** — adjust the selected node's pressure by 0.5.

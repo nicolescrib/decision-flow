@@ -150,7 +150,8 @@ class Simulator:
 
         x, y = placement
         pressure = random.uniform(-self.MAX_PRESSURE, self.MAX_PRESSURE)
-        self.add_node(self._next_node_id(), units=0.0, pressure=pressure, capacity=100.0, radius=radius, x=x, y=y)
+        units = radius + 10.0
+        self.add_node(self._next_node_id(), units=units, pressure=pressure, capacity=100.0, radius=radius, x=x, y=y)
         return True
 
     def remove_random_node(self) -> Optional[str]:
@@ -313,10 +314,11 @@ class Simulator:
         self.pressure_gain = 1.0
         self.pressure_inverted = False
 
-        for node_id, units, pressure in (("A", 40.0, 4.0), ("B", 20.0, 0.0), ("C", 0.0, -4.0)):
+        for node_id, pressure in (("A", 4.0), ("B", 0.0), ("C", -4.0)):
             radius = random.uniform(self.MIN_NODE_RADIUS, self.MAX_NODE_RADIUS)
             placement = self._find_placement(radius)
             x, y = placement if placement is not None else (self.width / 2.0, self.height / 2.0)
+            units = radius + 10.0
             self.add_node(node_id, units=units, pressure=pressure, capacity=120.0, radius=radius, x=x, y=y)
 
 
