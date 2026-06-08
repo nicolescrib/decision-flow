@@ -214,4 +214,6 @@ class ParticleRenderer(Renderer):
         scale_text = self.small_font.render(
             f"Scale: {self.scale:.2f} units/px  |  Map: {int(simulator.width)}x{int(simulator.height)}"
             f"  |  Particles: {len(simulator.particle_positions)}",
-          
+            True, (185, 195, 215),
+        )
+        screen.blit(scale_text, (content_rect.left + 8, content_rect.top + 24))

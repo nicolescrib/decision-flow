@@ -86,4 +86,29 @@ In the first iteration, the user should be able to:
 - Each node stores a `units` value (its share of the finite, conserved resource), a `capacity`, and a signed `pressure` value.
 - Each particle is a free body with its own position and velocity.
 - On each tick:
-  - every 
+  - every particle feels a force from every node: `force = (particle_pos - node_pos) * node.pressure / distance^2`, so positive pressure pushes particles away and negative pressure pulls them in;
+  - particles within range of a negative-pressure node are absorbed, converting back into one unit for that node (capacity permitting);
+  - positive-pressure nodes accumulate an emission charge proportional to their pressure and convert their own units into newly emitted particles once the charge crosses a threshold.
+- Because every conversion is symmetric (one unit becomes one particle and vice versa), `total_units = sum(node.units) + particle_count` stays exactly constant — the simulation has a finite, conserved pool of units.
+- Expose node and particle state to the renderer for visualization.
+
+## Implementation plan
+1. Create the initial file structure and modules.
+2. Implement the simulator with:
+   - `Node` and `Particle` objects
+   - a `Simulator` class that holds state and computes tick updates
+   - pressure-field force calculation, particle absorption, and particle emission
+3. Add a renderer that displays nodes, drifting particles, and pressure-based color/intensity coding.
+4. Add a simple UI loop with `pygame` and controls for reset, pause/run, stepping, node selection, and adjusting a selected node's units and pressure.
+5. Iterate on rules and visuals once the core structure is working.
+
+## Requirements
+- Python 3.10+ (or similar modern Python)
+- `pygame` for rendering and input
+- `numpy` for vectorized particle physics
+
+## Future extensions
+- Add puzzles with target pressure patterns or unit distributions.
+- Let the user reposition nodes or add/remove them at runtime.
+- Add more sophisticated field interactions, such as particle-to-particle forces or node-to-node pressure coupling.
+- Allow saving and loading custom scenarios (positions, units, and pressures).

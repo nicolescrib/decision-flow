@@ -40,6 +40,13 @@ class Simulator:
     MIN_DISTANCE = 12.0
     EMISSION_CHARGE_RATE = 0.12
     EMISSION_SPEED = 1.5
+    PULL_RANGE = 25.0               # radius (sim units) from which negative-pressure nodes pull particles
+    PULL_CHARGE_RATE = 0.12         # rate at which pull charge accumulates (mirrors emission)
+
+    # Direct node-to-node pressure flow.
+    FLOW_PRESSURE_THRESHOLD = 1.0   # |effective pressure| difference to trigger flow
+    FLOW_RATE = 0.04                # units transferred per unit of pressure differential per tick
+    FLOW_RANGE = 100.0              # max centre-to-centre distance (sim units) for direct flow
 
     def __init__(self, width: float = 500.0, height: float = 400.0) -> None:
         self.width = width
@@ -57,6 +64,7 @@ class Simulator:
         # Global field modifiers applied on top of each node's authored pressure.
         self.pressure_gain: float = 1.0
         self.pressure_inverted: bool = False
+        self._pull_charge: Dict[str, float] = {}
 
     def add_node(
         self,
@@ -68,9 +76,14 @@ class Simulator:
         x: float = 0.0,
         y: float = 0.0,
     ) -> None:
-        self.nodes[node_id] = Node(id=node_id, units=units, pressure=pressure, capacity=capacity, radius=radius, x=x, y=y)
+        node = Node(id=node_id, units=units, pressure=pressure, capacity=capacity, radius=radius, x=x, y=y)
+        # Set radius immediately from units so the node renders at the right size from frame one.
+        t = max(0.0, min(1.0, units / max(capacity, 1.0)))
+        node.radius = self.MIN_NODE_RADIUS + t * (self.MAX_NODE_RADIUS - self.MIN_NODE_RADIUS)
+        self.nodes[node_id] = node
         self._initial_units[node_id] = units
         self._emission_charge[node_id] = 0.0
+        self._pull_charge[node_id] = 0.0
         self._update_total_units()
 
     def reset(self) -> None:
@@ -79,9 +92,11 @@ class Simulator:
             node.clamp()
         self.clear_particles()
         self._emission_charge = {node_id: 0.0 for node_id in self.nodes}
+        self._pull_charge = {node_id: 0.0 for node_id in self.nodes}
         self.pressure_gain = 1.0
         self.pressure_inverted = False
         self.tick_count = 0
+        self._update_node_radii()
 
     def clear_particles(self) -> None:
         self.particle_positions = np.empty((0, 2), dtype=np.float64)
@@ -96,6 +111,12 @@ class Simulator:
 
     def _update_total_units(self) -> None:
         self.total_units = sum(node.units for node in self.nodes.values()) + len(self.particle_positions)
+
+    def node_radius(self, node: Node) -> float:
+        """Radius scaled by fill level, clamped to [MIN_NODE_RADIUS, MAX_NODE_RADIUS]."""
+        t = node.units / max(node.capacity, 1.0)
+        t = max(0.0, min(1.0, t))
+        return self.MIN_NODE_RADIUS + t * (self.MAX_NODE_RADIUS - self.MIN_NODE_RADIUS)
 
     def effective_pressure(self, node: Node) -> float:
         """Pressure the physics actually uses: authored value scaled by the global
@@ -162,6 +183,7 @@ class Simulator:
         node = self.nodes.pop(node_id)
         self._initial_units.pop(node_id, None)
         self._emission_charge.pop(node_id, None)
+        self._pull_charge.pop(node_id, None)
 
         count = int(round(node.units))
         if count > 0:
@@ -289,4 +311,121 @@ class Simulator:
 
             self._emission_charge[node.id] = charge
 
-        if 
+        if new_positions:
+            self._append_particles(new_positions, new_velocities)
+
+    def _pull_particles(self) -> None:
+        """Nodes with sufficient negative pressure actively pull nearby particles in."""
+        positions = self.particle_positions
+        if len(positions) == 0:
+            return
+
+        absorbed_mask = np.zeros(len(positions), dtype=bool)
+
+        for node in self.nodes.values():
+            pressure = self.effective_pressure(node)
+            if pressure >= 0.0 or node.units >= node.capacity:
+                self._pull_charge[node.id] = 0.0
+                continue
+
+            charge = self._pull_charge.get(node.id, 0.0) + (-pressure) * self.PULL_CHARGE_RATE
+
+            dx = positions[:, 0] - node.x
+            dy = positions[:, 1] - node.y
+            dist_sq = dx * dx + dy * dy
+            pull_range_sq = self.PULL_RANGE ** 2
+
+            while charge >= 1.0 and node.units < node.capacity:
+                in_range = (dist_sq <= pull_range_sq) & ~absorbed_mask
+                candidates = np.flatnonzero(in_range)
+                if candidates.size == 0:
+                    break
+                closest = candidates[np.argmin(dist_sq[candidates])]
+                absorbed_mask[closest] = True
+                node.units = min(node.capacity, node.units + 1.0)
+                charge -= 1.0
+
+            self._pull_charge[node.id] = charge
+
+        if absorbed_mask.any():
+            keep = ~absorbed_mask
+            self.particle_positions = self.particle_positions[keep]
+            self.particle_velocities = self.particle_velocities[keep]
+
+    def _node_flow(self) -> None:
+        """Directly transfer units between nearby nodes driven by pressure differential.
+
+        When two nodes are within FLOW_RANGE and their effective-pressure difference
+        exceeds FLOW_PRESSURE_THRESHOLD, units flow from the higher-pressure node to
+        the lower-pressure one at a rate proportional to the difference.
+        """
+        nodes = list(self.nodes.values())
+        for i, a in enumerate(nodes):
+            for b in nodes[i + 1:]:
+                dist = math.hypot(a.x - b.x, a.y - b.y)
+                if dist > self.FLOW_RANGE:
+                    continue
+                pa = self.effective_pressure(a)
+                pb = self.effective_pressure(b)
+                # Flow goes from the higher-pressure node to the lower-pressure one.
+                diff = pa - pb
+                if abs(diff) < self.FLOW_PRESSURE_THRESHOLD:
+                    continue
+                amount = diff * self.FLOW_RATE
+                # Clamp so we never take more than a node has or push past its capacity.
+                if amount > 0:
+                    amount = min(amount, a.units, b.capacity - b.units)
+                else:
+                    amount = max(amount, -b.units, -(a.capacity - a.units))
+                a.units -= amount
+                b.units += amount
+                a.clamp()
+                b.clamp()
+
+    def _update_node_radii(self) -> None:
+        """Resize every node so its radius reflects its current unit count."""
+        for node in self.nodes.values():
+            node.radius = self.node_radius(node)
+
+    def tick(self) -> None:
+        if not self.nodes:
+            return
+
+        self._apply_forces()
+        self._absorb_particles()
+        self._pull_particles()
+        self._emit_particles()
+        self._node_flow()
+        self._update_node_radii()
+
+        self.tick_count += 1
+        self._update_total_units()
+
+    def get_snapshot(self) -> Dict[str, float]:
+        return {node_id: node.units for node_id, node in self.nodes.items()}
+
+    def create_default_graph(self) -> None:
+        self.nodes.clear()
+        self.clear_particles()
+        self._initial_units.clear()
+        self._emission_charge.clear()
+        self.pressure_gain = 1.0
+        self.pressure_inverted = False
+
+        for node_id, pressure in (("A", 4.0), ("B", 0.0), ("C", -4.0)):
+            radius = random.uniform(self.MIN_NODE_RADIUS, self.MAX_NODE_RADIUS)
+            placement = self._find_placement(radius)
+            x, y = placement if placement is not None else (self.width / 2.0, self.height / 2.0)
+            units = radius + 10.0
+            self.add_node(node_id, units=units, pressure=pressure, capacity=120.0, radius=radius, x=x, y=y)
+
+
+if __name__ == "__main__":
+    simulator = Simulator()
+    simulator.create_default_graph()
+    for _ in range(10):
+        simulator.tick()
+        print(
+            f"Tick {simulator.tick_count}: {simulator.get_snapshot()} "
+            f"total={simulator.total_units:.1f} particles={len(simulator.particle_positions)}"
+        )
