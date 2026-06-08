@@ -289,45 +289,4 @@ class Simulator:
 
             self._emission_charge[node.id] = charge
 
-        if new_positions:
-            self._append_particles(new_positions, new_velocities)
-
-    def tick(self) -> None:
-        if not self.nodes:
-            return
-
-        self._apply_forces()
-        self._absorb_particles()
-        self._emit_particles()
-
-        self.tick_count += 1
-        self._update_total_units()
-
-    def get_snapshot(self) -> Dict[str, float]:
-        return {node_id: node.units for node_id, node in self.nodes.items()}
-
-    def create_default_graph(self) -> None:
-        self.nodes.clear()
-        self.clear_particles()
-        self._initial_units.clear()
-        self._emission_charge.clear()
-        self.pressure_gain = 1.0
-        self.pressure_inverted = False
-
-        for node_id, pressure in (("A", 4.0), ("B", 0.0), ("C", -4.0)):
-            radius = random.uniform(self.MIN_NODE_RADIUS, self.MAX_NODE_RADIUS)
-            placement = self._find_placement(radius)
-            x, y = placement if placement is not None else (self.width / 2.0, self.height / 2.0)
-            units = radius + 10.0
-            self.add_node(node_id, units=units, pressure=pressure, capacity=120.0, radius=radius, x=x, y=y)
-
-
-if __name__ == "__main__":
-    simulator = Simulator()
-    simulator.create_default_graph()
-    for _ in range(10):
-        simulator.tick()
-        print(
-            f"Tick {simulator.tick_count}: {simulator.get_snapshot()} "
-            f"total={simulator.total_units:.1f} particles={len(simulator.particle_positions)}"
-        )
+        if 

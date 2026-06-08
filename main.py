@@ -16,10 +16,4 @@ def main() -> None:
     simulator = Simulator()
     simulator.create_default_graph()
 
-    renderers = [ParticleRenderer(scale=1.0), SimpleNumberRenderer(), CompactListRenderer()]
-    ui = UI(simulator, renderers, ui_scale=UI_SCALE)
-    ui.run()
-
-
-if __name__ == "__main__":
-    main()
+    

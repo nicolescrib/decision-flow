@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(python _menu_probe.py)",
+      "Bash(python -c ' *)",
+      "Bash(python _render_probe.py)",
+      "Bash(rm -f _sharp_probe.py probe_sharp_particle.png probe_sharp_filemenu.png probe_sharp_renderermenu.png probe_current_ui.png)",
+      "Bash(ls *.png *probe*)",
+      "Bash(python -c \"import numpy; print\\(numpy.__version__\\)\")"
+    ]
+  }
+}
