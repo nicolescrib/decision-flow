@@ -18,10 +18,14 @@ class MenuItem:
 class UI:
     WINDOW_SIZE = (760, 520)
     MENU_HEIGHT = 28
-    MENU_BG = (20, 22, 36)
-    MENU_TEXT = (220, 220, 220)
-    MENU_HIGHLIGHT = (60, 80, 130)
-    STATUS_TEXT = (200, 200, 220)
+    MENU_BG = (14, 16, 26)
+    MENU_BORDER = (70, 76, 100)
+    MENU_TEXT = (240, 242, 248)
+    MENU_HIGHLIGHT = (70, 95, 150)
+    STATUS_TEXT = (205, 212, 230)
+    PRESSURE_STEP = 0.5
+    MAX_PRESSURE = 10.0
+    SCALE_STEP = 0.25
 
     def __init__(self, simulator: Simulator, renderers: Sequence[Renderer]) -> None:
         pygame.init()
@@ -129,13 +133,13 @@ class UI:
                             self.simulator.nodes[self.selected_node].capacity,
                             self.simulator.nodes[self.selected_node].units + 5.0
                         )
-                    elif hasattr(self.active_renderer, 'set_resolution'):
-                        self.active_renderer.set_resolution(self.active_renderer.resolution + 1)
+                    elif hasattr(self.active_renderer, 'set_scale'):
+                        self.active_renderer.set_scale(self.active_renderer.scale + self.SCALE_STEP)
                 elif event.key == pygame.K_MINUS:
                     if self.selected_node and self.selected_node in self.simulator.nodes:
                         self.simulator.nodes[self.selected_node].units = max(0.0, self.simulator.nodes[self.selected_node].units - 5.0)
-                    elif hasattr(self.active_renderer, 'set_resolution'):
-                        self.active_renderer.set_resolution(self.active_renderer.resolution - 1)
+                    elif hasattr(self.active_renderer, 'set_scale'):
+                        self.active_renderer.set_scale(self.active_renderer.scale - self.SCALE_STEP)
                 elif event.key == pygame.K_UP:
                     if self.selected_node and self.selected_node in self.simulator.nodes:
                         self.simulator.nodes[self.selected_node].units = min(
@@ -145,6 +149,20 @@ class UI:
                 elif event.key == pygame.K_DOWN:
                     if self.selected_node and self.selected_node in self.simulator.nodes:
                         self.simulator.nodes[self.selected_node].units = max(0.0, self.simulator.nodes[self.selected_node].units - 1.0)
+                elif event.key == pygame.K_RIGHTBRACKET:
+                    if self.selected_node and self.selected_node in self.simulator.nodes:
+                        node = self.simulator.nodes[self.selected_node]
+                        node.pressure = min(self.MAX_PRESSURE, node.pressure + self.PRESSURE_STEP)
+                elif event.key == pygame.K_LEFTBRACKET:
+                    if self.selected_node and self.selected_node in self.simulator.nodes:
+                        node = self.simulator.nodes[self.selected_node]
+                        node.pressure = max(-self.MAX_PRESSURE, node.pressure - self.PRESSURE_STEP)
+                elif event.key == pygame.K_n:
+                    self.simulator.add_random_node()
+                elif event.key == pygame.K_k:
+                    removed_id = self.simulator.remove_random_node()
+                    if removed_id is not None and removed_id == self.selected_node:
+                        self.selected_node = None
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._handle_mouse_press(event.pos)
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -213,6 +231,7 @@ class UI:
     def _draw_menu_bar(self) -> None:
         bar_rect = Rect(0, 0, self.WINDOW_SIZE[0], self.MENU_HEIGHT)
         pygame.draw.rect(self.screen, self.MENU_BG, bar_rect)
+        pygame.draw.line(self.screen, self.MENU_BORDER, (0, self.MENU_HEIGHT - 1), (self.WINDOW_SIZE[0], self.MENU_HEIGHT - 1))
 
         file_label = self.menu_font.render("File", True, self.MENU_TEXT)
         file_rect = file_label.get_rect(topleft=(10, 6))
@@ -220,6 +239,8 @@ class UI:
         file_hover = self.file_button_rect.collidepoint(self.mouse_pos)
         file_color = self.MENU_HIGHLIGHT if (self.open_menu == "file" or file_hover or self.pressed_button == "file") else self.MENU_BG
         pygame.draw.rect(self.screen, file_color, self.file_button_rect)
+        if self.open_menu == "file" or file_hover:
+            pygame.draw.rect(self.screen, self.MENU_BORDER, self.file_button_rect, width=1)
         self.screen.blit(file_label, file_rect)
 
         renderer_label = self.menu_font.render("Renderer", True, self.MENU_TEXT)
@@ -228,51 +249,72 @@ class UI:
         renderer_hover = self.renderer_button_rect.collidepoint(self.mouse_pos)
         renderer_color = self.MENU_HIGHLIGHT if (self.open_menu == "renderer" or renderer_hover or self.pressed_button == "renderer") else self.MENU_BG
         pygame.draw.rect(self.screen, renderer_color, self.renderer_button_rect)
+        if self.open_menu == "renderer" or renderer_hover:
+            pygame.draw.rect(self.screen, self.MENU_BORDER, self.renderer_button_rect, width=1)
         self.screen.blit(renderer_label, renderer_rect)
 
         start_label = self.menu_font.render("Start", True, self.MENU_TEXT)
         start_rect = start_label.get_rect(topleft=(190, 6))
         self.start_button_rect = Rect(start_rect.left - 6, 0, start_rect.width + 12, self.MENU_HEIGHT)
         start_hover = self.start_button_rect.collidepoint(self.mouse_pos)
-        start_color = (80, 160, 100) if (start_hover or self.pressed_button == "start") else (50, 120, 70)
-        pygame.draw.rect(self.screen, start_color, self.start_button_rect, border_radius=4)
+        start_color = (90, 180, 115) if (start_hover or self.pressed_button == "start") else (55, 130, 80)
+        pygame.draw.rect(self.screen, start_color, self.start_button_rect, border_radius=3)
+        pygame.draw.rect(self.screen, (140, 220, 165), self.start_button_rect, width=1, border_radius=3)
         self.screen.blit(start_label, start_rect)
 
         stop_label = self.menu_font.render("Stop", True, self.MENU_TEXT)
         stop_rect = stop_label.get_rect(topleft=(250, 6))
         self.stop_button_rect = Rect(stop_rect.left - 6, 0, stop_rect.width + 12, self.MENU_HEIGHT)
         stop_hover = self.stop_button_rect.collidepoint(self.mouse_pos)
-        stop_color = (160, 80, 100) if (stop_hover or self.pressed_button == "stop") else (120, 50, 60)
-        pygame.draw.rect(self.screen, stop_color, self.stop_button_rect, border_radius=4)
+        stop_color = (185, 90, 110) if (stop_hover or self.pressed_button == "stop") else (130, 55, 65)
+        pygame.draw.rect(self.screen, stop_color, self.stop_button_rect, border_radius=3)
+        pygame.draw.rect(self.screen, (230, 150, 165), self.stop_button_rect, width=1, border_radius=3)
         self.screen.blit(stop_label, stop_rect)
 
         step_label = self.menu_font.render("Step", True, self.MENU_TEXT)
         step_rect = step_label.get_rect(topleft=(310, 6))
         self.step_button_rect = Rect(step_rect.left - 6, 0, step_rect.width + 12, self.MENU_HEIGHT)
         step_hover = self.step_button_rect.collidepoint(self.mouse_pos)
-        step_color = (120, 120, 160) if (step_hover or self.pressed_button == "step") else (80, 80, 120)
-        pygame.draw.rect(self.screen, step_color, self.step_button_rect, border_radius=4)
+        step_color = (135, 135, 180) if (step_hover or self.pressed_button == "step") else (85, 85, 130)
+        pygame.draw.rect(self.screen, step_color, self.step_button_rect, border_radius=3)
+        pygame.draw.rect(self.screen, (190, 190, 235), self.step_button_rect, width=1, border_radius=3)
         self.screen.blit(step_label, step_rect)
 
         status = "Running" if self.auto_run else "Stopped"
-        status_text = self.menu_font.render(f"Status: {status}  |  Renderer: {self.active_renderer.name}", True, self.STATUS_TEXT)
+        total_units = int(self.simulator.total_units)
+        if self.selected_node and self.selected_node in self.simulator.nodes:
+            node = self.simulator.nodes[self.selected_node]
+            status_line = (
+                f"Status: {status}  |  {node.id}: {node.units:.1f}u  pressure {node.pressure:+.1f}"
+                f"  |  Total units: {total_units}"
+            )
+        else:
+            status_line = f"Status: {status}  |  Renderer: {self.active_renderer.name}  |  Total units: {total_units}"
+        status_text = self.menu_font.render(status_line, True, self.STATUS_TEXT)
         self.screen.blit(status_text, (380, 6))
 
     def _draw_dropdown(self, items: List[MenuItem], x: int, y: int) -> None:
         item_height = 24
         width = 160
         background = Rect(x, y, width, item_height * len(items))
-        pygame.draw.rect(self.screen, (30, 35, 60), background)
-        pygame.draw.rect(self.screen, (180, 180, 210), background, width=1)
+        pygame.draw.rect(self.screen, self.MENU_BG, background)
+        pygame.draw.rect(self.screen, self.MENU_BORDER, background, width=1)
 
         for index, item in enumerate(items):
             item_rect = Rect(x, y + index * item_height, width, item_height)
             item.rect = item_rect
-            pygame.draw.rect(self.screen, self.MENU_BG if index % 2 == 0 else (28, 32, 50), item_rect)
+            item_hover = item_rect.collidepoint(self.mouse_pos)
+            if item_hover:
+                pygame.draw.rect(self.screen, self.MENU_HIGHLIGHT, item_rect)
             text_surface = self.menu_font.render(item.label, True, self.MENU_TEXT)
             self.screen.blit(text_surface, (x + 8, y + index * item_height + 5))
+            if index > 0:
+                pygame.draw.line(self.screen, self.MENU_BORDER, (x + 1, item_rect.top), (x + width - 1, item_rect.top))
 
     def _draw_hints(self) -> None:
-        hint_text = "Space: toggle  |  Tab: renderer  |  +/-: resolution  |  Click menus"
+        hint_text = (
+            "Space: toggle | Tab: renderer | Click node: Up/Down units, [ ]: pressure | "
+            "+/-: scale | n: new node | k: kill random node"
+        )
         text_surface = self.menu_font.render(hint_text, True, self.STATUS_TEXT)
         self.screen.blit(text_surface, (12, self.WINDOW_SIZE[1] - 24))
