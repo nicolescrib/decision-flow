@@ -39,7 +39,7 @@ class SettingRow:
 
 class UI:
     WINDOW_SIZE = (760, 520)
-    UI_SCALE = 2.0
+    TICKS_PER_SECOND = 10
     MENU_HEIGHT = 28
     MENU_BG = (14, 16, 26)
     MENU_BORDER = (70, 76, 100)
@@ -50,32 +50,20 @@ class UI:
     MAX_PRESSURE = 10.0
     SCALE_STEP = 0.25
 
-    def __init__(self, simulator: Simulator, renderers: Sequence[Renderer], ui_scale: Optional[float] = None) -> None:
-        pygame.init()
+    def __init__(self, simulator: Simulator, renderers: Sequence[Renderer], on_exit: Callable[[], None]) -> None:
         self.simulator = simulator
         self.renderers = list(renderers)
+        self.on_exit = on_exit
         self.active_renderer_index = 0
         self.active_renderer = self.renderers[self.active_renderer_index]
         self.auto_run = False
-        self.running = True
         self.open_menu: Optional[str] = None
         self.selected_node: Optional[str] = None
+        self._tick_time_ms = 0.0
 
-        # UI_SCALE renders the interface at WINDOW_SIZE and upscales it to the
-        # window, so every layout/font value below stays in logical pixels.
-        # The scale is capped so the window fits the display (minus room for
-        # taskbar/title bar) without distorting WINDOW_SIZE's aspect ratio.
-        requested_scale = self.UI_SCALE if ui_scale is None else ui_scale
-        display_info = pygame.display.Info()
-        max_width = display_info.current_w - 80
-        max_height = display_info.current_h - 120
-        fit_scale = min(max_width / self.WINDOW_SIZE[0], max_height / self.WINDOW_SIZE[1])
-        self.ui_scale = min(requested_scale, fit_scale)
-        self.window_size = (round(self.WINDOW_SIZE[0] * self.ui_scale), round(self.WINDOW_SIZE[1] * self.ui_scale))
-        self.screen = pygame.display.set_mode(self.window_size)
+        # The app renders every screen at WINDOW_SIZE onto this canvas and
+        # scales it up to the window, so layout/font values are logical pixels.
         self.canvas = pygame.Surface(self.WINDOW_SIZE)
-        pygame.display.set_caption("Decision Flow")
-        self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 20)
         self.menu_font = pygame.font.Font(None, 18)
 
@@ -85,7 +73,7 @@ class UI:
             MenuItem("Step", self.step_animation),
             MenuItem("Reset", self.reset_simulation),
             MenuItem("Clear All", self.clear_all),
-            MenuItem("Exit", self.quit),
+            MenuItem("Back to Title", self.quit),
         ]
         self.settings_rows: List[SettingRow] = []
 
@@ -177,90 +165,88 @@ class UI:
         self.open_menu = None
 
     def quit(self) -> None:
-        self.running = False
+        self.auto_run = False
+        self.open_menu = None
+        self.on_exit()
 
-    def run(self) -> None:
-        while self.running:
-            self._handle_events()
-            if self.auto_run:
-                self.simulator.tick()
-            self._draw()
-            self.clock.tick(10)
+    def update(self, dt_ms: float) -> None:
+        if not self.auto_run:
+            self._tick_time_ms = 0.0
+            return
+        # The sandbox's physics is tuned for 10 ticks a second, independent of
+        # the frame rate the app draws at.
+        self._tick_time_ms += dt_ms
+        interval = 1000.0 / self.TICKS_PER_SECOND
+        while self._tick_time_ms >= interval:
+            self.simulator.tick()
+            self._tick_time_ms -= interval
 
-        pygame.quit()
-
-    def _handle_events(self) -> None:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.running = False
-            elif event.type == pygame.MOUSEMOTION:
-                self.mouse_pos = self._to_logical(event.pos)
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    self.running = False
+    def handle_event(self, event: pygame.event.Event, pos: Optional[Tuple[float, float]]) -> None:
+        if event.type == pygame.MOUSEMOTION and pos is not None:
+            self.mouse_pos = pos
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and pos is not None:
+            self._handle_mouse_press(pos)
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.pressed_button = None
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.selected_node = None
+                self.on_exit()
+            elif event.key == pygame.K_SPACE:
+                self.auto_run = not self.auto_run
+            elif event.key == pygame.K_TAB:
+                self.active_renderer_index = (self.active_renderer_index + 1) % len(self.renderers)
+                self.active_renderer = self.renderers[self.active_renderer_index]
+            elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    self.simulator.nodes[self.selected_node].units = min(
+                        self.simulator.nodes[self.selected_node].capacity,
+                        self.simulator.nodes[self.selected_node].units + 5.0
+                    )
+                elif hasattr(self.active_renderer, 'set_scale'):
+                    self.active_renderer.set_scale(self.active_renderer.scale + self.SCALE_STEP)
+            elif event.key == pygame.K_MINUS:
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    self.simulator.nodes[self.selected_node].units = max(0.0, self.simulator.nodes[self.selected_node].units - 5.0)
+                elif hasattr(self.active_renderer, 'set_scale'):
+                    self.active_renderer.set_scale(self.active_renderer.scale - self.SCALE_STEP)
+            elif event.key == pygame.K_UP:
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    self.simulator.nodes[self.selected_node].units = min(
+                        self.simulator.nodes[self.selected_node].capacity,
+                        self.simulator.nodes[self.selected_node].units + 1.0
+                    )
+            elif event.key == pygame.K_DOWN:
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    self.simulator.nodes[self.selected_node].units = max(0.0, self.simulator.nodes[self.selected_node].units - 1.0)
+            elif event.key == pygame.K_RIGHTBRACKET:
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    node = self.simulator.nodes[self.selected_node]
+                    node.pressure = min(self.MAX_PRESSURE, node.pressure + self.PRESSURE_STEP)
+                else:
+                    self.simulator.adjust_pressure_gain(self.simulator.GAIN_STEP)
+            elif event.key == pygame.K_LEFTBRACKET:
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    node = self.simulator.nodes[self.selected_node]
+                    node.pressure = max(-self.MAX_PRESSURE, node.pressure - self.PRESSURE_STEP)
+                else:
+                    self.simulator.adjust_pressure_gain(-self.simulator.GAIN_STEP)
+            elif event.unicode == ")":
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    node = self.simulator.nodes[self.selected_node]
+                    node.pressure = min(self.MAX_PRESSURE, node.pressure + self.PRESSURE_STEP)
+            elif event.unicode == "(":
+                if self.selected_node and self.selected_node in self.simulator.nodes:
+                    node = self.simulator.nodes[self.selected_node]
+                    node.pressure = max(-self.MAX_PRESSURE, node.pressure - self.PRESSURE_STEP)
+            elif event.key == pygame.K_i:
+                self.simulator.toggle_pressure_inverted()
+            elif event.key == pygame.K_n:
+                self.simulator.add_random_node()
+            elif event.key == pygame.K_k:
+                removed_id = self.simulator.remove_random_node()
+                if removed_id is not None and removed_id == self.selected_node:
                     self.selected_node = None
-                elif event.key == pygame.K_SPACE:
-                    self.auto_run = not self.auto_run
-                elif event.key == pygame.K_TAB:
-                    self.active_renderer_index = (self.active_renderer_index + 1) % len(self.renderers)
-                    self.active_renderer = self.renderers[self.active_renderer_index]
-                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        self.simulator.nodes[self.selected_node].units = min(
-                            self.simulator.nodes[self.selected_node].capacity,
-                            self.simulator.nodes[self.selected_node].units + 5.0
-                        )
-                    elif hasattr(self.active_renderer, 'set_scale'):
-                        self.active_renderer.set_scale(self.active_renderer.scale + self.SCALE_STEP)
-                elif event.key == pygame.K_MINUS:
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        self.simulator.nodes[self.selected_node].units = max(0.0, self.simulator.nodes[self.selected_node].units - 5.0)
-                    elif hasattr(self.active_renderer, 'set_scale'):
-                        self.active_renderer.set_scale(self.active_renderer.scale - self.SCALE_STEP)
-                elif event.key == pygame.K_UP:
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        self.simulator.nodes[self.selected_node].units = min(
-                            self.simulator.nodes[self.selected_node].capacity,
-                            self.simulator.nodes[self.selected_node].units + 1.0
-                        )
-                elif event.key == pygame.K_DOWN:
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        self.simulator.nodes[self.selected_node].units = max(0.0, self.simulator.nodes[self.selected_node].units - 1.0)
-                elif event.key == pygame.K_RIGHTBRACKET:
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        node = self.simulator.nodes[self.selected_node]
-                        node.pressure = min(self.MAX_PRESSURE, node.pressure + self.PRESSURE_STEP)
-                    else:
-                        self.simulator.adjust_pressure_gain(self.simulator.GAIN_STEP)
-                elif event.key == pygame.K_LEFTBRACKET:
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        node = self.simulator.nodes[self.selected_node]
-                        node.pressure = max(-self.MAX_PRESSURE, node.pressure - self.PRESSURE_STEP)
-                    else:
-                        self.simulator.adjust_pressure_gain(-self.simulator.GAIN_STEP)
-                elif event.unicode == ")":
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        node = self.simulator.nodes[self.selected_node]
-                        node.pressure = min(self.MAX_PRESSURE, node.pressure + self.PRESSURE_STEP)
-                elif event.unicode == "(":
-                    if self.selected_node and self.selected_node in self.simulator.nodes:
-                        node = self.simulator.nodes[self.selected_node]
-                        node.pressure = max(-self.MAX_PRESSURE, node.pressure - self.PRESSURE_STEP)
-                elif event.key == pygame.K_i:
-                    self.simulator.toggle_pressure_inverted()
-                elif event.key == pygame.K_n:
-                    self.simulator.add_random_node()
-                elif event.key == pygame.K_k:
-                    removed_id = self.simulator.remove_random_node()
-                    if removed_id is not None and removed_id == self.selected_node:
-                        self.selected_node = None
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self._handle_mouse_press(self._to_logical(event.pos))
-            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                self.pressed_button = None
-
-    def _to_logical(self, position: Tuple[int, int]) -> Tuple[float, float]:
-        return (position[0] / self.ui_scale, position[1] / self.ui_scale)
 
     def _handle_mouse_press(self, position: Tuple[float, float]) -> None:
         if self.file_button_rect and self.file_button_rect.collidepoint(position):
@@ -309,7 +295,8 @@ class UI:
         self.open_menu = None
         self.selected_node = None
 
-    def _draw(self) -> None:
+    def draw(self, canvas: pygame.Surface) -> None:
+        self.canvas = canvas
         self.canvas.fill((10, 12, 18))
         self._draw_menu_bar()
         content_rect = Rect(0, self.MENU_HEIGHT, self.WINDOW_SIZE[0], self.WINDOW_SIZE[1] - self.MENU_HEIGHT)
@@ -322,11 +309,6 @@ class UI:
         elif self.open_menu == "settings":
             self._draw_settings_panel(90, self.MENU_HEIGHT)
 
-        if self.ui_scale == 1.0:
-            self.screen.blit(self.canvas, (0, 0))
-        else:
-            pygame.transform.scale(self.canvas, self.window_size, self.screen)
-        pygame.display.flip()
 
     def _draw_menu_bar(self) -> None:
         bar_rect = Rect(0, 0, self.WINDOW_SIZE[0], self.MENU_HEIGHT)
@@ -448,8 +430,8 @@ class UI:
 
     def _draw_hints(self) -> None:
         hint_text = (
-            "Space: toggle | Tab: renderer | +/-/↑↓: units | ( ): node pressure | "
-            "[ ]: node pressure or global gain | i: invert | n: new node | k: kill node"
+            "Space: run | Tab: view | +/- Up/Dn: units | ( ): pressure | "
+            "[ ]: pressure/gain | i: invert | n/k: add/remove | Esc: title"
         )
         text_surface = self.menu_font.render(hint_text, True, self.STATUS_TEXT)
         self.canvas.blit(text_surface, (12, self.WINDOW_SIZE[1] - 24))

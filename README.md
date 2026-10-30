@@ -1,114 +1,77 @@
-# Decision Flow — Zen Pressure Sandbox
+# Decision Flow
 
 ## Overview
-Decision Flow is a small Python toy program that simulates decision-making through the lens of pressure gradients. The first version will be a minimalist, interactive desktop sandbox where nodes accumulate or emit discrete units based on simple pressure differences.
+Decision Flow is a small, calm physics puzzle game in Python and pygame. A source releases a limited stream of particles that drift through a pressure field. Your job is to steer that flow into every ring on the board, using a handful of pins, without letting it fall into voids.
 
-The goal is to create a calm, puzzle-like experience with a modular architecture and clean separation between simulation, rendering, and UI.
+The look is a crisp late-90s pixel toy: a dark board, glowing particle trails, chunky outlines and synthesized blips. The original free-form pressure **sandbox** is still there as a separate mode.
 
-## Concept
-- The simulation is built around a set of nodes placed in a 2D space.
-- Each node holds a numeric quantity of "units" — a finite, conserved resource that only ever moves between being stored in a node and traveling as a free particle.
-- Each node also has its own signed "pressure" value, independent of its unit count. Positive pressure makes a node emit particles (converting its own units into them); negative pressure makes a node attract and absorb nearby particles (converting them back into units).
-- Particles drift freely through the space under the combined pull/push of every node's pressure field — their position relative to nodes is fully simulated, not fixed to predefined connections.
-- The system evolves over time in discrete ticks.
-- The player can interact with the sandbox by selecting nodes and adjusting their units or pressure.
-- Beyond per-node pressure, a global **pressure field** modifier acts on every node at once: a multiplicative **gain** scales all pressures together (preserving their relative balance), and an **invert** toggle flips the whole field so emitters become absorbers and vice versa. Both are applied on top of each node's authored pressure, leaving the per-node values unchanged.
+## How to play
+- Each level has one or more **sources** (warm circles, showing how many units are left) and one or more **rings** to fill (showing `filled/target`).
+- Press **Space** to open the sources. Each particle comes out along the pull of the field and keeps its momentum as it travels.
+- Rings pull the flow towards them and absorb it until they are full, then go quiet.
+- **Voids** (purple swirls, some orbiting) destroy any particle that touches them. Those units are gone for good.
+- The supply is finite. If too little flow is left to fill every ring, the level is lost ("Out of flow").
+- Before releasing, a dotted line previews where the stream will go. Use it to plan where your pins go.
 
-## Design goals
-- Keep the first version small and understandable.
-- Separate concerns clearly:
-  - `simulator.py`: core model and update rules
-  - `renderer.py`: drawing state to the screen
-  - `ui.py`: window, input, and loop management
-  - `main.py`: program bootstrap
-- Use object-oriented style where it adds clarity without harming simplicity.
-- Keep the visuals simple and pleasing, like a pixel-based late-90s/early-2000s toy applet.
+### Pins
+Each level gives you a few pins in the tray at the bottom. Drag one onto the board to place it.
+- **Pull pins** (blue) attract every particle. A pull pin gathers the stream into a swarm, and you can **carry the swarm by dragging the pin**: around walls, past voids, and onto a ring to deliver it.
+- **Push pins** (orange) repel particles. Use them as banks and shields to bend the stream without catching it.
+- Scroll the mouse wheel (or press `[` / `]`) over a pin to change its strength (1 to 3). Right-click a pin to return it to the tray.
+- Pins can be moved at any time, including while the flow is running. Your layout is kept when you restart.
 
-## Planned architecture
+### Colours
+In later levels the flow comes in two colours. A coloured ring only pulls on, and only accepts, particles of its own colour. Pins move every colour, so a carried swarm can be sorted ring by ring.
 
-### Simulator
-- Represents nodes (each with a position, a unit count, and a pressure value) and free-roaming particles.
-- Maintains the current state of the system, including the conserved total unit count.
-- Each tick: applies pressure-field forces to move particles, absorbs particles into negative-pressure nodes, and emits particles from positive-pressure nodes.
-- Exposes a stable state snapshot to the renderer and UI.
-- Particles are stored as `numpy` arrays (positions and velocities as Nx2 float arrays) rather than a list of objects, so the per-tick force, movement, and absorption math is vectorized across all particles at once instead of looped in pure Python. This keeps the simulation responsive as the particle count grows into the thousands.
-
-### Renderer
-- Converts simulation state into a simple visual representation.
-- Uses a lightweight rendering layer such as `pygame`.
-- Draws nodes, drifting particles, and pressure-based color coding.
-- Keeps rendering logic separate from simulation logic.
-
-### UI
-- Handles user input and window events.
-- Allows stepping the simulation, resetting state, selecting a node, and adjusting that node's units and pressure.
-- Drives the main loop and orchestrates simulation ticks and rendering.
-
-### UI look and feel
-- Use a crisp low-resolution grid aesthetic reminiscent of 90s/early-2000s pixel games.
-- Render nodes as simple filled squares or circles with a chunky outline.
-- Draw particles as small drifting dots whose motion traces the pressure field between nodes.
-- Use a limited palette with subtle gradients: a dark background, cool tones for attracting (negative-pressure) nodes, warm tones for emitting (positive-pressure) nodes, and muted greens for neutral nodes.
-- Show node pressure values as small pixel-style text or a color intensity bar.
-- Use simple UI chrome: a small top or side panel with state labels, controls, and status text.
-- Keep animations smooth but restrained: flow pulses and pressure changes should feel calm and deliberate.
-
-### Main
-- Wires the simulator, renderer, and UI together.
-- Initializes the app and runs the main loop.
-
-## User interaction
-In the first iteration, the user should be able to:
-- Start, stop, and step the sandbox and watch particles drift between nodes.
-- Observe nodes fill or empty as they emit and absorb particles.
-- Reset the simulation back to its initial unit values.
-- Select a node and adjust its units and pressure live, to set up custom starting conditions or experiment with the field.
-- Switch between alternative renderers (numeric, list, and spatial particle views).
-- Raise or lower the global pressure gain to intensify or calm the entire field at once.
-- Invert the whole pressure field, swapping every emitter and absorber.
-- Open the **Settings** menu to view and edit every adjustable setting (active renderer, pressure gain, pressure inversion, particle scale) from one place, with controls that update live as new settings are added.
+### Stars
+Clear a level to earn stars based on how many particles you lost. The thresholds are shown at the top right, and the stars there dim live as you lose particles. Clearing a level unlocks the next. Best results are saved to `~/.decision_flow_progress.json`.
 
 ## Controls
-- **Space** — run / pause the simulation.
-- **Tab** — cycle through renderers.
-- **Settings menu** — open it from the menu bar to adjust any editable setting with on-screen +/- and toggle controls.
-- **Click a node** to select it.
-- **Up / Down** — adjust the selected node's units by 1.
-- **[ / ]** — adjust the selected node's pressure by 0.5.
-- **( / )** — lower / raise the global **pressure gain**, which scales every node's pressure at once (range 0.0–3.0, default 1.0×).
-- **i** — toggle **invert pressure** (emitters become absorbers and vice versa).
-- **+ / −** — add / remove 5 units from the selected node, or zoom the particle view when no node is selected.
-- **n / k** — add / remove a random node.
-- **Esc** — quit.
+| Where | Input | Action |
+|---|---|---|
+| Level select | Click / arrows + Enter | Play a level |
+| | `S` | Open the sandbox |
+| | `M` | Mute / unmute |
+| | `Esc` | Quit |
+| Puzzle | Drag from tray | Place a pin |
+| | Drag a pin | Move it (live, while flowing) |
+| | Right-click a pin | Remove it |
+| | Wheel or `[` / `]` over a pin | Pin strength |
+| | `Space` | Release the flow / pause |
+| | `R` | Restart (pins stay) |
+| | `C` | Clear all pins |
+| | Hold `F` | Fast-forward ×3 |
+| | `Enter` | Next level (after a win) |
+| | `M` | Mute / unmute |
+| | `Esc` | Back to level select |
 
-## Simulation plan
-- Place a small set of nodes at fixed positions in a 2D normalized space.
-- Each node stores a `units` value (its share of the finite, conserved resource), a `capacity`, and a signed `pressure` value.
-- Each particle is a free body with its own position and velocity.
-- On each tick:
-  - every particle feels a force from every node: `force = (particle_pos - node_pos) * node.pressure / distance^2`, so positive pressure pushes particles away and negative pressure pulls them in;
-  - particles within range of a negative-pressure node are absorbed, converting back into one unit for that node (capacity permitting);
-  - positive-pressure nodes accumulate an emission charge proportional to their pressure and convert their own units into newly emitted particles once the charge crosses a threshold.
-- Because every conversion is symmetric (one unit becomes one particle and vice versa), `total_units = sum(node.units) + particle_count` stays exactly constant — the simulation has a finite, conserved pool of units.
-- Expose node and particle state to the renderer for visualization.
+### Sandbox controls
+- **Space** run / pause, **Tab** cycle renderers, **Esc** back to the title.
+- **Click a node** to select it. **Up / Down** change its units by 1, **+ / −** by 5 (or zoom the particle view when nothing is selected).
+- **( / )** change the selected node's pressure by 0.5. **[ / ]** do the same, or change the global **pressure gain** when no node is selected.
+- **i** inverts the whole pressure field. **n / k** add / remove a random node.
+- The **Settings** menu lists every editable setting (renderer, gain, inversion, particle scale).
 
-## Implementation plan
-1. Create the initial file structure and modules.
-2. Implement the simulator with:
-   - `Node` and `Particle` objects
-   - a `Simulator` class that holds state and computes tick updates
-   - pressure-field force calculation, particle absorption, and particle emission
-3. Add a renderer that displays nodes, drifting particles, and pressure-based color/intensity coding.
-4. Add a simple UI loop with `pygame` and controls for reset, pause/run, stepping, node selection, and adjusting a selected node's units and pressure.
-5. Iterate on rules and visuals once the core structure is working.
+## Running
+```
+pip install -r requirements.txt
+python main.py
+```
+Run the tests with `python -m unittest discover -s tests -t .`. They include a scripted three-star solution for every level, so a physics or level change that makes a level impossible fails the suite.
 
-## Requirements
-- Python 3.10+ (or similar modern Python)
-- `pygame` for rendering and input
-- `numpy` for vectorized particle physics
+## Architecture
+- `simulator.py`: the physics. Nodes have a role: `node` (the original sandbox node, which emits, absorbs, pulls and trades units depending on pressure), `source` (only emits) or `goal` (only absorbs, and goes quiet when full). On top of nodes there are pins (field-only pushes and pulls), walls (axis-aligned rectangles that particles bounce off) and voids (destroy particles, optionally orbiting). Particles are numpy arrays of positions, velocities and colours, so forces, wall bounces and absorption are vectorized. Each force is `(particle - source) * pressure / distance²`. Units are conserved: `nodes + particles + lost` stays constant. `predict_path` powers the preview line.
+- `levels.py`: level data (sources, rings, walls, voids, pin allowance, star thresholds) and the puzzle physics settings: less drag than the sandbox, a speed cap so particles can't tunnel through walls, and a short-range particle repulsion so a gathered cloud reads as a swarm.
+- `puzzle.py`: the rules for one level. Pin placement and inventory, the design → running → won/failed states, failure detection (per colour) and star rating.
+- `puzzle_view.py`: drawing for a puzzle. Board, trails, rings, voids, pins, preview, HUD, tray and result panels.
+- `game.py`: the `App` (window, scaling, main loop) and its screens. The title/level select (with a live simulation in the background) and the puzzle screen. Puzzle physics ticks at 30 per second; the screen draws at 60 fps.
+- `audio.py`: sounds synthesized with numpy at start-up, including pentatonic plinks for absorption, a sweep for lost particles and chords for filled rings and wins. Silent if there is no audio device.
+- `progress.py`: saved best stars and the mute setting.
+- `ui.py` and `renderer.py`: the sandbox screen and its three renderers (particle, number tiles, list).
+- `main.py`: entry point. `UI_SCALE` sets the window scale.
 
-## Future extensions
-- Add puzzles with target pressure patterns or unit distributions.
-- Let the user reposition nodes or add/remove them at runtime.
-- Add more sophisticated field interactions, such as particle-to-particle forces or node-to-node pressure coupling.
-- Allow saving and loading custom scenarios (positions, units, and pressures).
+## Ideas for later
+- A level editor, and saving/loading custom levels.
+- Moving walls, gates that open when a ring fills, and sources that pulse.
+- Time-based par scores alongside the loss-based stars.
+- Particle-to-particle interactions beyond the swarm repulsion.
